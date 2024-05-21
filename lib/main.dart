@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:parkify/Pages/home.dart';
+import 'package:parkify/Pages/parking_map.dart';
 
 var kColorScheme = ColorScheme.fromSeed(
   seedColor: const Color.fromARGB(255, 73, 188, 245),
@@ -37,7 +38,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.white,
         useMaterial3: true,
       ),
-      home: const HomePage(),
+      home: const ParkingMap(),
     );
   }
 }
