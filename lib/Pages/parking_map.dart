@@ -1,8 +1,10 @@
 import "dart:async";
+import 'dart:math' as math;
 
 import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:parkify/Components/layers_modal.dart";
+import "package:parkify/Components/map_icon_button.dart";
 import "package:parkify/functions/locations.dart";
 import "package:geolocator/geolocator.dart";
 
@@ -26,8 +28,11 @@ class _ParkingMapState extends State<ParkingMap> {
   double _currentZoom = 0;
   Position? _currentPosition;
   LatLng _center = const LatLng(0, 0);
+  LatLng _currentCenter = const LatLng(0, 0);
   double _positionAccuracy = 0;
+  double _currentBearing = 0;
   MapType _mapType = MapType.normal;
+  bool _showMyLocationMarker = true;
 
   // this initializes the map controller
   void onMapCreated(GoogleMapController controller) {
@@ -86,6 +91,7 @@ class _ParkingMapState extends State<ParkingMap> {
     });
   }
 
+  //this shows the layer switch settings
   void _showLayersModal() {
     showModalBottomSheet(
       context: context,
@@ -117,6 +123,70 @@ class _ParkingMapState extends State<ParkingMap> {
               initialCameraPosition: CameraPosition(
                 target: _center,
                 zoom: 13,
+              ),
+              onCameraMove: (CameraPosition position) {
+                setState(() {
+                  _currentZoom = position.zoom;
+                  _currentCenter = position.target;
+                  _currentBearing = position.bearing;
+                });
+              },
+            ),
+            Align(
+              alignment: Alignment.topRight,
+              child: Container(
+                width: 45,
+                margin: const EdgeInsets.fromLTRB(0, 60, 10, 0),
+                // decoration: BoxDecoration(
+                //   borderRadius: BorderRadius.circular(10),
+                // ),
+                child: Column(
+                  children: <Widget>[
+                    MapIconButton(
+                      // position: Pos.top,
+                      onPressed: () {
+                        zoomIn(_mapController, _currentZoom, _currentCenter);
+                      },
+                      icon: const Icon(Icons.add, size: 22),
+                    ),
+                    const SizedBox(height: 10),
+                    MapIconButton(
+                      position: Pos.center,
+                      onPressed: () {
+                        zoomOut(_mapController, _currentZoom, _currentCenter);
+                      },
+                      icon: const Icon(Icons.remove, size: 22),
+                    ),
+                    const SizedBox(height: 10),
+                    MapIconButton(
+                      // position: Pos.center,
+                      onPressed: () {
+                        _mapController.animateCamera(
+                          CameraUpdate.newCameraPosition(
+                            CameraPosition(
+                              target: _currentCenter,
+                              bearing: 0,
+                              zoom: _currentZoom,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: Transform.rotate(
+                          alignment: Alignment.center,
+                          angle: _currentBearing * (math.pi / 180),
+                          child: Image.asset('assets/Images/NorthArrow.png')),
+                    ),
+                    const SizedBox(height: 10),
+                    MapIconButton(
+                      // position: Pos.bottom,
+                      onPressed: _showLayersModal,
+                      icon: const Icon(
+                        Icons.layers_rounded,
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

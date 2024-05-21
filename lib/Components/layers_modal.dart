@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:parkify/Components/sub_components/basemap_button.dart';
+import 'package:parkify/Components/basemap_button.dart';
 
 class LayersModal extends StatefulWidget {
   const LayersModal({
