@@ -2,6 +2,7 @@ import "dart:async";
 
 import "package:flutter/material.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
+import "package:parkify/Components/layers_modal.dart";
 import "package:parkify/functions/locations.dart";
 import "package:geolocator/geolocator.dart";
 
@@ -36,6 +37,15 @@ class _ParkingMapState extends State<ParkingMap> {
     });
   }
 
+  // This hides or shows the default location marker
+  void _toggleUserLocationMarker() {
+    setState(() {
+      _showMyLocationMarker
+          ? _showMyLocationMarker = false
+          : _showMyLocationMarker = true;
+    });
+  }
+
   // this starts the geolocation service
   startLocation() {
     final positionStream =
@@ -63,6 +73,33 @@ class _ParkingMapState extends State<ParkingMap> {
     });
   }
 
+  //this changes the map type/basemap
+  void _changeMapType(String type) {
+    setState(() {
+      if (type == 'def') {
+        _mapType = MapType.normal;
+      } else if (type == 'sat') {
+        _mapType = MapType.hybrid;
+      } else if (type == 'ter') {
+        _mapType = MapType.terrain;
+      }
+    });
+  }
+
+  void _showLayersModal() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return LayersModal(
+          changeLayersFunction: _changeMapType,
+          toggleLocationMarker: _toggleUserLocationMarker,
+          locationMarker: _showMyLocationMarker,
+          activeMapType: _mapType,
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +113,7 @@ class _ParkingMapState extends State<ParkingMap> {
         body: Stack(
           children: [
             GoogleMap(
+              onMapCreated: onMapCreated,
               initialCameraPosition: CameraPosition(
                 target: _center,
                 zoom: 13,
