@@ -33,6 +33,7 @@ class _ParkingMapState extends State<ParkingMap> {
   double _currentBearing = 0;
   MapType _mapType = MapType.normal;
   bool _showMyLocationMarker = true;
+  bool _isDragging = false;
 
   // this initializes the map controller
   void onMapCreated(GoogleMapController controller) {
@@ -64,6 +65,7 @@ class _ParkingMapState extends State<ParkingMap> {
           _positionAccuracy = position.accuracy;
           _center = LatLng(_currentPosition?.latitude ?? 0,
               _currentPosition?.longitude ?? 0);
+          print(_currentPosition);
           // print(_center);
           if (_mapCreated) {
             _mapController.animateCamera(
@@ -110,6 +112,7 @@ class _ParkingMapState extends State<ParkingMap> {
   void initState() {
     super.initState();
     getLocationpermission();
+    startLocation();
   }
 
   @override
@@ -119,19 +122,44 @@ class _ParkingMapState extends State<ParkingMap> {
         body: Stack(
           children: [
             GoogleMap(
-              onMapCreated: onMapCreated,
-              initialCameraPosition: CameraPosition(
-                target: _center,
-                zoom: 13,
-              ),
-              onCameraMove: (CameraPosition position) {
-                setState(() {
-                  _currentZoom = position.zoom;
-                  _currentCenter = position.target;
-                  _currentBearing = position.bearing;
-                });
-              },
-            ),
+                onMapCreated: onMapCreated,
+                initialCameraPosition: CameraPosition(
+                  target: _center,
+                  zoom: 13,
+                ),
+                myLocationEnabled: true,
+                onCameraMove: (CameraPosition position) {
+                  setState(() {
+                    _currentZoom = position.zoom;
+                    _currentCenter = position.target;
+                    _currentBearing = position.bearing;
+                  });
+                },
+                markers: {
+                  if (_showMyLocationMarker)
+                    Marker(
+                      markerId: const MarkerId('User position'),
+                      position: _center,
+                      draggable: true,
+                      icon: BitmapDescriptor.defaultMarkerWithHue(
+                          BitmapDescriptor.hueRed),
+                      onDrag: (latlng) {
+                        setState(() {
+                          _isDragging = true;
+                        });
+                      },
+                      onDragStart: (latlng) {
+                        setState(() {
+                          _isDragging = true;
+                        });
+                      },
+                      onDragEnd: (latlng) {
+                        setState(() {
+                          _center = latlng;
+                        });
+                      },
+                    ),
+                }),
             Align(
               alignment: Alignment.topRight,
               child: Container(
