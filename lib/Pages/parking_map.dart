@@ -1,10 +1,16 @@
 import "dart:async";
+import "dart:convert";
 import 'dart:math' as math;
 
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
+import "package:flutter_polyline_points/flutter_polyline_points.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:parkify/Components/layers_modal.dart";
 import "package:parkify/Components/map_icon_button.dart";
+import "package:parkify/Components/park_details_modal.dart";
+import "package:parkify/data_models/constants.dart";
+import "package:parkify/data_models/geojson_model.dart";
 import "package:parkify/functions/locations.dart";
 import "package:geolocator/geolocator.dart";
 
@@ -34,6 +40,75 @@ class _ParkingMapState extends State<ParkingMap> {
   MapType _mapType = MapType.normal;
   bool _showMyLocationMarker = true;
   bool _isDragging = false;
+  List<Polygon> _polys = [];
+  LatLng? _polygoncenter;
+  Marker? _polygonCenterMarker;
+  Map<PolylineId, Polyline> _polylines = {};
+
+  //create polyline
+  void generatePolylineFromPoints(List<LatLng> polylineCoordinates) async {
+    PolylineId id = PolylineId('lines');
+    Polyline polyline = Polyline(
+        polylineId: id,
+        points: polylineCoordinates,
+        color: Colors.blue,
+        width: 4);
+    setState(() {
+      _polylines[id] = polyline;
+    });
+  }
+
+  //function to create a routes between user and destinations
+  Future<List<LatLng>> getPolylinePoints() async {
+    List<LatLng> polylineCoordinates = [];
+    PolylinePoints polylinePoints = PolylinePoints();
+    PolylineResult result = await polylinePoints.getRouteBetweenCoordinates(
+      googleApiKey: GOOGLE_MAPS_API_KEY,
+      request: PolylineRequest(
+        origin: PointLatLng(_center.latitude, _center.longitude),
+        destination:
+            PointLatLng(_polygoncenter!.latitude, _polygoncenter!.longitude),
+        mode: TravelMode.bicycling,
+      ),
+    );
+
+    if (result.points.isNotEmpty) {
+      result.points.forEach((PointLatLng point) {
+        polylineCoordinates.add(
+          LatLng(point.latitude, point.longitude),
+        );
+      });
+    } else {
+      print(result.errorMessage);
+    }
+    return polylineCoordinates;
+  }
+
+  // find the center of a selected polygon
+  LatLng findCentroid(List<LatLng> vertices) {
+    double area = 0.0;
+    double centroidLat = 0.0;
+    double centroidLng = 0.0;
+
+    for (int i = 0; i < vertices.length; i++) {
+      int nextIndex = (i + 1) % vertices.length;
+      double lat0 = vertices[i].latitude;
+      double lng0 = vertices[i].longitude;
+      double lat1 = vertices[nextIndex].latitude;
+      double lng1 = vertices[nextIndex].longitude;
+
+      double a = lat0 * lng1 - lat1 * lng0;
+      area += a;
+      centroidLat += (lat0 + lat1) * a;
+      centroidLng += (lng0 + lng1) * a;
+    }
+
+    area *= 0.5;
+    centroidLat /= (6 * area);
+    centroidLng /= (6 * area);
+
+    return LatLng(centroidLat, centroidLng);
+  }
 
   // this initializes the map controller
   void onMapCreated(GoogleMapController controller) {
@@ -41,6 +116,7 @@ class _ParkingMapState extends State<ParkingMap> {
     setState(() {
       _mapCreated = true;
     });
+    startLocation();
   }
 
   // This hides or shows the default location marker
@@ -49,6 +125,65 @@ class _ParkingMapState extends State<ParkingMap> {
       _showMyLocationMarker
           ? _showMyLocationMarker = false
           : _showMyLocationMarker = true;
+    });
+  }
+
+  void fetchPolygons() async {
+    const path = "assets/data/parks.json";
+    final file = await rootBundle.loadString(path);
+    var jsonData = json.decode(file);
+
+    var geojson = GeoJsonModel.fromJson(jsonData);
+
+    setState(() {
+      _polys = geojson.features.map<Polygon>((item) {
+        // print(item['geometry']['coordinates']);
+        return Polygon(
+          consumeTapEvents: true,
+          polygonId: PolygonId(item['properties']['Name']),
+          fillColor: int.parse(item['properties']["available_spaces"]) > 0
+              ? Colors.green
+              : Colors.red,
+          points: (item['geometry']['coordinates'][0] as List)
+              .map((coord) => LatLng(coord[1], coord[0]))
+              .toList(),
+          onTap: () {
+            final vertices = (item['geometry']['coordinates'][0] as List)
+                .map((coord) => LatLng(coord[1], coord[0]))
+                .toList();
+            setState(() {
+              _polygoncenter = findCentroid(vertices);
+              print(_polygoncenter);
+              _polygonCenterMarker = Marker(
+                markerId: const MarkerId('polygonCenter'),
+                position: _polygoncenter!,
+                icon: int.parse(item['properties']["available_spaces"]) > 0
+                    ? BitmapDescriptor.defaultMarker
+                    : BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueGreen),
+              );
+            });
+            showPolygonModal(
+                item['properties']['Name'],
+                int.parse(item['properties']['capacity']),
+                int.parse(item['properties']['available_spaces']));
+          },
+          strokeWidth: 1,
+        );
+      }).toList();
+    });
+  }
+
+  onNavigationCancelled() {
+    setState(() {
+      _polygonCenterMarker = null;
+      _polygoncenter = null;
+    });
+  }
+
+  onNavigate() async {
+    await getPolylinePoints().then((coordinates) => {
+      generatePolylineFromPoints(coordinates)
     });
   }
 
@@ -65,7 +200,7 @@ class _ParkingMapState extends State<ParkingMap> {
           _positionAccuracy = position.accuracy;
           _center = LatLng(_currentPosition?.latitude ?? 0,
               _currentPosition?.longitude ?? 0);
-          print(_currentPosition);
+          // print(_currentPosition);
           // print(_center);
           if (_mapCreated) {
             _mapController.animateCamera(
@@ -108,11 +243,33 @@ class _ParkingMapState extends State<ParkingMap> {
     );
   }
 
+  void showPolygonModal(name, capacity, availableSpaces) {
+    showModalBottomSheet(
+        context: context,
+        useRootNavigator: true,
+        builder: (BuildContext context) {
+          return SizedBox(
+            height: 240,
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: ParkingModal(
+                name: name,
+                capacity: capacity,
+                availableSpaces: availableSpaces,
+                onNavigate: onNavigate,
+                onNavigationCancelled: onNavigationCancelled,
+              ),
+            ),
+          );
+        });
+  }
+
   @override
   void initState() {
     super.initState();
     getLocationpermission();
-    startLocation();
+    // startLocation();
+    fetchPolygons();
   }
 
   @override
@@ -122,44 +279,37 @@ class _ParkingMapState extends State<ParkingMap> {
         body: Stack(
           children: [
             GoogleMap(
-                onMapCreated: onMapCreated,
-                initialCameraPosition: CameraPosition(
-                  target: _center,
-                  zoom: 13,
-                ),
-                myLocationEnabled: true,
-                onCameraMove: (CameraPosition position) {
-                  setState(() {
-                    _currentZoom = position.zoom;
-                    _currentCenter = position.target;
-                    _currentBearing = position.bearing;
-                  });
-                },
-                markers: {
-                  if (_showMyLocationMarker)
-                    Marker(
-                      markerId: const MarkerId('User position'),
-                      position: _center,
-                      draggable: true,
-                      icon: BitmapDescriptor.defaultMarkerWithHue(
-                          BitmapDescriptor.hueRed),
-                      onDrag: (latlng) {
-                        setState(() {
-                          _isDragging = true;
-                        });
-                      },
-                      onDragStart: (latlng) {
-                        setState(() {
-                          _isDragging = true;
-                        });
-                      },
-                      onDragEnd: (latlng) {
-                        setState(() {
-                          _center = latlng;
-                        });
-                      },
-                    ),
-                }),
+              onMapCreated: onMapCreated,
+              initialCameraPosition: CameraPosition(
+                target: _center,
+                zoom: 17,
+              ),
+              myLocationEnabled: _showMyLocationMarker,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              mapType: _mapType,
+              onCameraMove: (CameraPosition position) {
+                setState(() {
+                  _currentZoom = position.zoom;
+                  _currentCenter = position.target;
+                  _currentBearing = position.bearing;
+                });
+              },
+              markers: {
+                if (_showMyLocationMarker)
+                  Marker(
+                    markerId: const MarkerId('User position'),
+                    position: _center,
+                    draggable: true,
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueBlue),
+                  ),
+                if (_polygoncenter != null && _polygonCenterMarker != null)
+                  _polygonCenterMarker!,
+              },
+              polygons: _polys.isNotEmpty ? Set<Polygon>.of(_polys) : {},
+              polylines: Set<Polyline>.of(_polylines.values),
+            ),
             Align(
               alignment: Alignment.topRight,
               child: Container(

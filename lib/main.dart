@@ -4,7 +4,6 @@ import 'package:parkify/Pages/parking_map.dart';
 
 var kColorScheme = ColorScheme.fromSeed(
   seedColor: const Color.fromARGB(255, 73, 188, 245),
-  primary: const Color.fromARGB(255, 73, 188, 245),
 );
 void main() {
   runApp(const MyApp());
