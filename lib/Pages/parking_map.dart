@@ -219,6 +219,20 @@ class _ParkingMapState extends State<ParkingMap> {
     });
   }
 
+  // Function to calculate the total distance covered by a list of LatLng points
+double calculateTotalDistance(List<LatLng> points) {
+  if (points.length < 2) {
+    return 0.0;
+  }
+
+  double totalDistance = 0.0;
+  for (int i = 0; i < points.length - 1; i++) {
+    totalDistance += calculateDistanceFromList(points[i], points[i + 1]);
+  }
+
+  return totalDistance;
+}
+
   onNavigationCancelled() {
     setState(() {
       _polygonCenterMarker = null;
@@ -227,11 +241,10 @@ class _ParkingMapState extends State<ParkingMap> {
   }
 
   onNavigate() async {
-    await getPolylinePoints()
-        .then((coordinates) => {generatePolylineFromPoints(coordinates)});
-    setState(() {
-      final distance = calculateDistance(_center.latitude, _center.longitude,
-          _polygoncenter!.latitude, _polygoncenter!.longitude);
+    await getPolylinePoints().then((coordinates) {
+      generatePolylineFromPoints(coordinates);
+      setState(() {
+      final distance = calculateTotalDistance(coordinates);
       print('Estimated distance $distance');
       _isNavigating = true;
       timeLeft = estimateTravelTime(distance, 52);
@@ -240,6 +253,8 @@ class _ParkingMapState extends State<ParkingMap> {
       minutes = timeLeft.inMinutes % 60;
       seconds = timeLeft.inSeconds % 60;
     });
+    });
+    
   }
 
   // this starts the geolocation service
@@ -450,7 +465,9 @@ class _ParkingMapState extends State<ParkingMap> {
                     startCountdown();
                     await tts.speak('Starting to navigate');
                     await launchUrl(Uri.parse(
-                        'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY'));
+                        'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY')).then((onValue)=>{
+                          print("OnValue $onValue")
+                        });
                   },
                   child: Container(
                     height: 64,
@@ -473,7 +490,7 @@ class _ParkingMapState extends State<ParkingMap> {
                 child: Container(
                   width: MediaQuery.of(context).size.width - 136,
                   margin: const EdgeInsets.only(top: 32),
-                  padding: const EdgeInsets.symmetric(vertical:16),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(10),

@@ -1,6 +1,6 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'dart:math' show cos, sqrt, asin;
+import 'dart:math' show cos, sqrt, asin, sin, atan2, pi;
 
 getLocationpermission() async {
   bool serviceEnabled;
@@ -93,5 +93,27 @@ Duration estimateTravelTime(double distance, double averageSpeed) {
   // distance in kilometers, averageSpeed in kilometers per hour
   final timeInHours = distance / averageSpeed;
   final timeInMinutes = timeInHours * 3600;
-  return Duration(seconds:timeInMinutes.round());
+  return Duration(seconds: timeInMinutes.round());
+}
+
+// Function to calculate distance between two LatLng points using Haversine formula
+double calculateDistanceFromList(LatLng point1, LatLng point2) {
+  const earthRadiusKm = 6371.0;
+
+  double dLat = _degreesToRadians(point2.latitude - point1.latitude);
+  double dLon = _degreesToRadians(point2.longitude - point1.longitude);
+
+  double lat1 = _degreesToRadians(point1.latitude);
+  double lat2 = _degreesToRadians(point2.latitude);
+
+  double a = sin(dLat / 2) * sin(dLat / 2) +
+      sin(dLon / 2) * sin(dLon / 2) * cos(lat1) * cos(lat2);
+  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+  return earthRadiusKm * c;
+}
+
+// Function to convert degrees to radians
+double _degreesToRadians(double degrees) {
+  return degrees * pi / 180;
 }
