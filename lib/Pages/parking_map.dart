@@ -1,9 +1,10 @@
 import "dart:async";
 import "dart:convert";
-import 'dart:math' as math;
+import "dart:math" show cos, sqrt, asin, pi;
 
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
+import 'package:flutter_tts/flutter_tts.dart';
 import "package:flutter_polyline_points/flutter_polyline_points.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
 import "package:parkify/Components/layers_modal.dart";
@@ -13,6 +14,7 @@ import "package:parkify/data_models/constants.dart";
 import "package:parkify/data_models/geojson_model.dart";
 import "package:parkify/functions/locations.dart";
 import "package:geolocator/geolocator.dart";
+import "package:url_launcher/url_launcher.dart";
 
 class ParkingMap extends StatefulWidget {
   const ParkingMap({super.key});
@@ -27,7 +29,7 @@ class _ParkingMapState extends State<ParkingMap> {
   late StreamSubscription<Position> locationSubscription;
   final LocationSettings lSettings = const LocationSettings(
       distanceFilter: 1, accuracy: LocationAccuracy.high);
-
+  FlutterTts tts = FlutterTts();
   // initialize map variables
   late GoogleMapController _mapController;
   bool _mapCreated = false;
@@ -41,13 +43,16 @@ class _ParkingMapState extends State<ParkingMap> {
   bool _showMyLocationMarker = true;
   bool _isDragging = false;
   List<Polygon> _polys = [];
+  List<LatLng> _currentPolygon = [];
+  String _currentParkName = "";
   LatLng? _polygoncenter;
   Marker? _polygonCenterMarker;
   Map<PolylineId, Polyline> _polylines = {};
+  bool _isNavigating = false;
 
   //create polyline
   void generatePolylineFromPoints(List<LatLng> polylineCoordinates) async {
-    PolylineId id = PolylineId('lines');
+    PolylineId id = const PolylineId('lines');
     Polyline polyline = Polyline(
         polylineId: id,
         points: polylineCoordinates,
@@ -68,7 +73,7 @@ class _ParkingMapState extends State<ParkingMap> {
         origin: PointLatLng(_center.latitude, _center.longitude),
         destination:
             PointLatLng(_polygoncenter!.latitude, _polygoncenter!.longitude),
-        mode: TravelMode.bicycling,
+        mode: TravelMode.driving,
       ),
     );
 
@@ -152,16 +157,23 @@ class _ParkingMapState extends State<ParkingMap> {
                 .map((coord) => LatLng(coord[1], coord[0]))
                 .toList();
             setState(() {
-              _polygoncenter = findCentroid(vertices);
-              print(_polygoncenter);
-              _polygonCenterMarker = Marker(
-                markerId: const MarkerId('polygonCenter'),
-                position: _polygoncenter!,
-                icon: int.parse(item['properties']["available_spaces"]) > 0
-                    ? BitmapDescriptor.defaultMarker
-                    : BitmapDescriptor.defaultMarkerWithHue(
-                        BitmapDescriptor.hueGreen),
-              );
+              if (_isNavigating) {
+                // _currentPolygon = vertices;
+                // _currentParkName = item['properties']['Name'];
+              } else {
+                _currentPolygon = vertices;
+                _currentParkName = item['properties']['Name'];
+                _polygoncenter = findCentroid(vertices);
+                print(_polygoncenter);
+                _polygonCenterMarker = Marker(
+                  markerId: const MarkerId('polygonCenter'),
+                  position: _polygoncenter!,
+                  icon: int.parse(item['properties']["available_spaces"]) > 0
+                      ? BitmapDescriptor.defaultMarker
+                      : BitmapDescriptor.defaultMarkerWithHue(
+                          BitmapDescriptor.hueGreen),
+                );
+              }
             });
             showPolygonModal(
                 item['properties']['Name'],
@@ -182,9 +194,48 @@ class _ParkingMapState extends State<ParkingMap> {
   }
 
   onNavigate() async {
-    await getPolylinePoints().then((coordinates) => {
-      generatePolylineFromPoints(coordinates)
+    await getPolylinePoints()
+        .then((coordinates) => {generatePolylineFromPoints(coordinates)});
+    setState(() {
+      _isNavigating = true;
     });
+  }
+
+  double calculateDistance(lat1, lon1, lat2, lon2) {
+    var p = 0.017453292519943295;
+    var c = cos;
+    var a = 0.5 -
+        c((lat2 - lat1) * p) / 2 +
+        c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p)) / 2;
+    return 12742 * asin(sqrt(a));
+  }
+
+  bool isPointInPolygon(LatLng point, List<LatLng> polygon) {
+    int intersectCount = 0;
+    for (int i = 0; i < polygon.length; i++) {
+      LatLng vertex1 = polygon[i];
+      LatLng vertex2 = polygon[(i + 1) % polygon.length];
+
+      // Check if the point is on a vertex
+      if ((vertex1.latitude == point.latitude &&
+              vertex1.longitude == point.longitude) ||
+          (vertex2.latitude == point.latitude &&
+              vertex2.longitude == point.longitude)) {
+        return true;
+      }
+
+      if ((point.longitude > vertex1.longitude) !=
+          (point.longitude > vertex2.longitude)) {
+        double atX = (point.longitude - vertex1.longitude) *
+                (vertex2.latitude - vertex1.latitude) /
+                (vertex2.longitude - vertex1.longitude) +
+            vertex1.latitude;
+        if (point.latitude < atX) {
+          intersectCount++;
+        }
+      }
+    }
+    return intersectCount % 2 != 0;
   }
 
   // this starts the geolocation service
@@ -209,6 +260,13 @@ class _ParkingMapState extends State<ParkingMap> {
                     _currentPosition?.longitude ?? 0),
               ),
             );
+          }
+          if (_isNavigating &&
+              _polygoncenter != null &&
+              _currentPolygon.isNotEmpty) {
+            if (isPointInPolygon(_center, _currentPolygon)) {
+              tts.speak('You are inside $_currentParkName');
+            }
           }
         });
       }
@@ -270,6 +328,8 @@ class _ParkingMapState extends State<ParkingMap> {
     getLocationpermission();
     // startLocation();
     fetchPolygons();
+    tts.setLanguage('en-US');
+    tts.setVolume(1.0);
   }
 
   @override
@@ -351,7 +411,7 @@ class _ParkingMapState extends State<ParkingMap> {
                       },
                       icon: Transform.rotate(
                           alignment: Alignment.center,
-                          angle: _currentBearing * (math.pi / 180),
+                          angle: _currentBearing * (pi / 180),
                           child: Image.asset('assets/Images/NorthArrow.png')),
                     ),
                     const SizedBox(height: 10),
@@ -367,6 +427,30 @@ class _ParkingMapState extends State<ParkingMap> {
                 ),
               ),
             ),
+            if (_isNavigating)
+              Align(
+                alignment: Alignment.bottomRight,
+                child: GestureDetector(
+                  onTap: () async {
+                    await tts.speak('Starting to navigate');
+                    await launchUrl(Uri.parse(
+                        'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY'));
+                  },
+                  child: Container(
+                    height: 64,
+                    width: 64,
+                    margin: const EdgeInsets.fromLTRB(0, 0, 16, 32),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(32),
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.navigation_outlined,
+                          size: 32, color: Colors.white),
+                    ),
+                  ),
+                ),
+              )
           ],
         ),
       ),
