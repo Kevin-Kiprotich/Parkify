@@ -1,6 +1,6 @@
 import "dart:async";
 import "dart:convert";
-import "dart:math" show cos, sqrt, asin, pi;
+import "dart:math" show pi;
 
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
@@ -49,6 +49,12 @@ class _ParkingMapState extends State<ParkingMap> {
   Marker? _polygonCenterMarker;
   Map<PolylineId, Polyline> _polylines = {};
   bool _isNavigating = false;
+  bool _isMoving = false;
+  late Duration timeLeft;
+  Timer? countdownTimer;
+  int? hours;
+  int? minutes;
+  int? seconds;
 
   //create polyline
   void generatePolylineFromPoints(List<LatLng> polylineCoordinates) async {
@@ -133,6 +139,33 @@ class _ParkingMapState extends State<ParkingMap> {
     });
   }
 
+  void startCountdown() {
+    countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      print("Point in polygon ${isPointInPolygon(_center, _currentPolygon)}");
+      if (timeLeft.inSeconds > 0 &&
+          isPointInPolygon(_center, _currentPolygon) == false) {
+        print(timeLeft);
+        setState(() {
+          timeLeft = timeLeft - const Duration(seconds: 1);
+          hours = timeLeft.inHours;
+          minutes = timeLeft.inMinutes % 60;
+          seconds = timeLeft.inSeconds % 60;
+        });
+      } else if (isPointInPolygon(_center, _currentPolygon)) {
+        tts.speak("You have arrived at $_currentParkName");
+        countdownTimer?.cancel();
+        setState(() {
+          _isMoving = false;
+        });
+      } else {
+        tts.speak(
+            "Time's up for $_currentParkName. The parking space has been reassigned");
+        countdownTimer?.cancel();
+      }
+    });
+    countdownTimer;
+  }
+
   void fetchPolygons() async {
     const path = "assets/data/parks.json";
     final file = await rootBundle.loadString(path);
@@ -197,45 +230,16 @@ class _ParkingMapState extends State<ParkingMap> {
     await getPolylinePoints()
         .then((coordinates) => {generatePolylineFromPoints(coordinates)});
     setState(() {
+      final distance = calculateDistance(_center.latitude, _center.longitude,
+          _polygoncenter!.latitude, _polygoncenter!.longitude);
+      print('Estimated distance $distance');
       _isNavigating = true;
+      timeLeft = estimateTravelTime(distance, 52);
+      print("Estimated time ${timeLeft.inSeconds}");
+      hours = timeLeft.inHours;
+      minutes = timeLeft.inMinutes % 60;
+      seconds = timeLeft.inSeconds % 60;
     });
-  }
-
-  double calculateDistance(lat1, lon1, lat2, lon2) {
-    var p = 0.017453292519943295;
-    var c = cos;
-    var a = 0.5 -
-        c((lat2 - lat1) * p) / 2 +
-        c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p)) / 2;
-    return 12742 * asin(sqrt(a));
-  }
-
-  bool isPointInPolygon(LatLng point, List<LatLng> polygon) {
-    int intersectCount = 0;
-    for (int i = 0; i < polygon.length; i++) {
-      LatLng vertex1 = polygon[i];
-      LatLng vertex2 = polygon[(i + 1) % polygon.length];
-
-      // Check if the point is on a vertex
-      if ((vertex1.latitude == point.latitude &&
-              vertex1.longitude == point.longitude) ||
-          (vertex2.latitude == point.latitude &&
-              vertex2.longitude == point.longitude)) {
-        return true;
-      }
-
-      if ((point.longitude > vertex1.longitude) !=
-          (point.longitude > vertex2.longitude)) {
-        double atX = (point.longitude - vertex1.longitude) *
-                (vertex2.latitude - vertex1.latitude) /
-                (vertex2.longitude - vertex1.longitude) +
-            vertex1.latitude;
-        if (point.latitude < atX) {
-          intersectCount++;
-        }
-      }
-    }
-    return intersectCount % 2 != 0;
   }
 
   // this starts the geolocation service
@@ -266,6 +270,7 @@ class _ParkingMapState extends State<ParkingMap> {
               _currentPolygon.isNotEmpty) {
             if (isPointInPolygon(_center, _currentPolygon)) {
               tts.speak('You are inside $_currentParkName');
+              _isMoving = false;
             }
           }
         });
@@ -330,6 +335,13 @@ class _ParkingMapState extends State<ParkingMap> {
     fetchPolygons();
     tts.setLanguage('en-US');
     tts.setVolume(1.0);
+  }
+
+  @override
+  void dispose() {
+    locationSubscription.cancel();
+    countdownTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -432,6 +444,10 @@ class _ParkingMapState extends State<ParkingMap> {
                 alignment: Alignment.bottomRight,
                 child: GestureDetector(
                   onTap: () async {
+                    setState(() {
+                      _isMoving = true;
+                    });
+                    startCountdown();
                     await tts.speak('Starting to navigate');
                     await launchUrl(Uri.parse(
                         'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY'));
@@ -448,6 +464,49 @@ class _ParkingMapState extends State<ParkingMap> {
                       child: Icon(Icons.navigation_outlined,
                           size: 32, color: Colors.white),
                     ),
+                  ),
+                ),
+              ),
+            if (_isMoving)
+              Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  width: MediaQuery.of(context).size.width - 136,
+                  margin: const EdgeInsets.only(top: 32),
+                  padding: const EdgeInsets.symmetric(vertical:16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x19000000),
+                        blurRadius: 16,
+                        offset: Offset(0, 4),
+                        spreadRadius: -2,
+                      )
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Please arrive at $_currentParkName in this time.'),
+                      Text(
+                        '$hours:$minutes:$seconds',
+                        style: const TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.bold,
+                          color: Color.fromRGBO(40, 40, 40, 1),
+                        ),
+                      ),
+                      if (timeLeft.inSeconds == 0 &&
+                          !isPointInPolygon(_center, _currentPolygon))
+                        Text(
+                          'Time\'s up! The parking space has been reassigned.',
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(fontSize: 14, color: Colors.red[800]),
+                        ),
+                    ],
                   ),
                 ),
               )
