@@ -188,17 +188,18 @@ class _ParkingMapState extends State<ParkingMap> {
     setState(() {
       _polys = geojson['features'].map<Polygon>((item) {
         // print(item['geometry']['coordinates']);
+        print("Coordinates: ${item['geometry']['coordinates'][0][0]}");
         return Polygon(
           consumeTapEvents: true,
           polygonId: PolygonId(item['properties']['Name']),
-          fillColor: int.parse(item['properties']["available_spaces"]) > 0
+          fillColor: item['properties']["available_spaces"] > 0
               ? Colors.green
               : Colors.red,
-          points: (item['geometry']['coordinates'][0] as List)
+          points: (item['geometry']['coordinates'][0][0] as List)
               .map((coord) => LatLng(coord[1], coord[0]))
               .toList(),
           onTap: () {
-            final vertices = (item['geometry']['coordinates'][0] as List)
+            final vertices = (item['geometry']['coordinates'][0][0] as List)
                 .map((coord) => LatLng(coord[1], coord[0]))
                 .toList();
             setState(() {
@@ -209,11 +210,10 @@ class _ParkingMapState extends State<ParkingMap> {
                 _currentPolygon = vertices;
                 _currentParkName = item['properties']['Name'];
                 _polygoncenter = findCentroid(vertices);
-                print(_polygoncenter);
                 _polygonCenterMarker = Marker(
                   markerId: const MarkerId('polygonCenter'),
                   position: _polygoncenter!,
-                  icon: int.parse(item['properties']["available_spaces"]) > 0
+                  icon: item['properties']["available_spaces"] > 0
                       ? BitmapDescriptor.defaultMarker
                       : BitmapDescriptor.defaultMarkerWithHue(
                           BitmapDescriptor.hueGreen),
@@ -222,12 +222,24 @@ class _ParkingMapState extends State<ParkingMap> {
             });
             showPolygonModal(
                 item['properties']['Name'],
-                int.parse(item['properties']['capacity']),
-                int.parse(item['properties']['available_spaces']));
+                item['properties']['capacity'],
+                item['properties']['available_spaces']);
           },
           strokeWidth: 1,
         );
       }).toList();
+      _mapController.animateCamera(
+        CameraUpdate.newCameraPosition(
+          const CameraPosition(
+            target: LatLng(-1.0983731853, 37.0134145544),
+            zoom: 17,
+          ),
+        ),
+        // CameraUpdate.newLatLng(
+        //   const LatLng(-1.0983731853,
+        //       37.0134145544),
+        // ),
+      );
     });
   }
 
