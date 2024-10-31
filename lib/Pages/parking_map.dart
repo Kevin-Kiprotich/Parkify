@@ -3,7 +3,6 @@ import "dart:convert";
 import "dart:math" show pi;
 
 import "package:flutter/material.dart";
-import "package:flutter/services.dart";
 import 'package:flutter_tts/flutter_tts.dart';
 import "package:flutter_polyline_points/flutter_polyline_points.dart";
 import "package:google_maps_flutter/google_maps_flutter.dart";
@@ -12,9 +11,12 @@ import "package:parkify/Components/map_icon_button.dart";
 import "package:parkify/Components/park_details_modal.dart";
 import "package:parkify/data_models/constants.dart";
 import "package:parkify/data_models/geojson_model.dart";
+import "package:parkify/functions/custom_dialogs.dart";
 import "package:parkify/functions/locations.dart";
 import "package:geolocator/geolocator.dart";
+import "package:stylish_dialog/stylish_dialog.dart";
 import "package:url_launcher/url_launcher.dart";
+import "package:http/http.dart" as http;
 
 class ParkingMap extends StatefulWidget {
   const ParkingMap({super.key});
@@ -41,13 +43,13 @@ class _ParkingMapState extends State<ParkingMap> {
   double _currentBearing = 0;
   MapType _mapType = MapType.normal;
   bool _showMyLocationMarker = true;
-  bool _isDragging = false;
+  // bool _isDragging = false;
   List<Polygon> _polys = [];
   List<LatLng> _currentPolygon = [];
   String _currentParkName = "";
   LatLng? _polygoncenter;
   Marker? _polygonCenterMarker;
-  Map<PolylineId, Polyline> _polylines = {};
+  final Map<PolylineId, Polyline> _polylines = {};
   bool _isNavigating = false;
   bool _isMoving = false;
   late Duration timeLeft;
@@ -84,11 +86,11 @@ class _ParkingMapState extends State<ParkingMap> {
     );
 
     if (result.points.isNotEmpty) {
-      result.points.forEach((PointLatLng point) {
+      for (var point in result.points) {
         polylineCoordinates.add(
           LatLng(point.latitude, point.longitude),
         );
-      });
+      }
     } else {
       print(result.errorMessage);
     }
@@ -128,6 +130,7 @@ class _ParkingMapState extends State<ParkingMap> {
       _mapCreated = true;
     });
     startLocation();
+    fetchPolygons();
   }
 
   // This hides or shows the default location marker
@@ -167,14 +170,23 @@ class _ParkingMapState extends State<ParkingMap> {
   }
 
   void fetchPolygons() async {
-    const path = "assets/data/parks.json";
-    final file = await rootBundle.loadString(path);
-    var jsonData = json.decode(file);
+    const url = "http://192.168.1.66:8000/api/parks";
+    print("Fetching polygons");
+    print("Fetching polygons");
+    final StylishDialog dialog = showProgressDialog(context);
+    dialog.show();
+    final response = await http.get(Uri.parse(url));
+    dialog.dismiss();
+    if (response.statusCode != 200) {
+      showError(context,
+          "Error fetching parking spaces. Error code ${response.statusCode}");
+      return;
+    }
 
-    var geojson = GeoJsonModel.fromJson(jsonData);
-
+    var geojson = json.decode(response.body)['parks'];
+    print(geojson);
     setState(() {
-      _polys = geojson.features.map<Polygon>((item) {
+      _polys = geojson['features'].map<Polygon>((item) {
         // print(item['geometry']['coordinates']);
         return Polygon(
           consumeTapEvents: true,
@@ -220,18 +232,18 @@ class _ParkingMapState extends State<ParkingMap> {
   }
 
   // Function to calculate the total distance covered by a list of LatLng points
-double calculateTotalDistance(List<LatLng> points) {
-  if (points.length < 2) {
-    return 0.0;
-  }
+  double calculateTotalDistance(List<LatLng> points) {
+    if (points.length < 2) {
+      return 0.0;
+    }
 
-  double totalDistance = 0.0;
-  for (int i = 0; i < points.length - 1; i++) {
-    totalDistance += calculateDistanceFromList(points[i], points[i + 1]);
-  }
+    double totalDistance = 0.0;
+    for (int i = 0; i < points.length - 1; i++) {
+      totalDistance += calculateDistanceFromList(points[i], points[i + 1]);
+    }
 
-  return totalDistance;
-}
+    return totalDistance;
+  }
 
   onNavigationCancelled() {
     setState(() {
@@ -240,22 +252,7 @@ double calculateTotalDistance(List<LatLng> points) {
     });
   }
 
-  onNavigate() async {
-    await getPolylinePoints().then((coordinates) {
-      generatePolylineFromPoints(coordinates);
-      setState(() {
-      final distance = calculateTotalDistance(coordinates);
-      print('Estimated distance $distance');
-      _isNavigating = true;
-      timeLeft = estimateTravelTime(distance, 52);
-      print("Estimated time ${timeLeft.inSeconds}");
-      hours = timeLeft.inHours;
-      minutes = timeLeft.inMinutes % 60;
-      seconds = timeLeft.inSeconds % 60;
-    });
-    });
-    
-  }
+  onNavigate(double timeInMinutes) async {}
 
   // this starts the geolocation service
   startLocation() {
@@ -321,33 +318,43 @@ double calculateTotalDistance(List<LatLng> points) {
     );
   }
 
-  void showPolygonModal(name, capacity, availableSpaces) {
-    showModalBottomSheet(
+  void showPolygonModal(name, capacity, availableSpaces) async {
+    final result = await showModalBottomSheet(
         context: context,
-        useRootNavigator: true,
+        isScrollControlled: true,
+        useSafeArea: true,
         builder: (BuildContext context) {
-          return SizedBox(
-            height: 240,
+          return SafeArea(
             child: Scaffold(
               backgroundColor: Colors.transparent,
               body: ParkingModal(
                 name: name,
                 capacity: capacity,
                 availableSpaces: availableSpaces,
-                onNavigate: onNavigate,
                 onNavigationCancelled: onNavigationCancelled,
               ),
             ),
           );
         });
+
+    if (result != null) {
+      final time = result['duration'];
+      int minutes = time.toInt();
+      double decimalPart = time - minutes;
+      int seconds = (decimalPart * 60).round();
+      setState(() {
+        _isNavigating = true;
+        timeLeft = Duration(minutes: minutes, seconds: seconds);
+        print(timeLeft);
+      });
+    }
   }
 
   @override
   void initState() {
     super.initState();
     getLocationpermission();
-    // startLocation();
-    fetchPolygons();
+    // startLocation()
     tts.setLanguage('en-US');
     tts.setVolume(1.0);
   }
@@ -465,9 +472,8 @@ double calculateTotalDistance(List<LatLng> points) {
                     startCountdown();
                     await tts.speak('Starting to navigate');
                     await launchUrl(Uri.parse(
-                        'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY')).then((onValue)=>{
-                          print("OnValue $onValue")
-                        });
+                            'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY'))
+                        .then((onValue) => {print("OnValue $onValue")});
                   },
                   child: Container(
                     height: 64,
@@ -506,6 +512,17 @@ double calculateTotalDistance(List<LatLng> points) {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Align(
+                          alignment: Alignment.centerRight,
+                          child: IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _isMoving = false;
+                                _isNavigating = false;
+                              });
+                            },
+                            icon: const Icon(Icons.close),
+                          )),
                       Text('Please arrive at $_currentParkName in this time.'),
                       Text(
                         '$hours:$minutes:$seconds',

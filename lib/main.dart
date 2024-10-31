@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:parkify/Pages/home.dart';
 import 'package:parkify/Pages/parking_map.dart';
 
 var kColorScheme = ColorScheme.fromSeed(
