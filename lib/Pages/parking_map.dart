@@ -50,6 +50,7 @@ class _ParkingMapState extends State<ParkingMap> {
   LatLng? _polygoncenter;
   Marker? _polygonCenterMarker;
   final Map<PolylineId, Polyline> _polylines = {};
+  Map<String, dynamic> parkInfo = {};
   bool _isNavigating = false;
   bool _isMoving = false;
   late Duration timeLeft;
@@ -143,7 +144,7 @@ class _ParkingMapState extends State<ParkingMap> {
   }
 
   void startCountdown() {
-    countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       print("Point in polygon ${isPointInPolygon(_center, _currentPolygon)}");
       if (timeLeft.inSeconds > 0 &&
           isPointInPolygon(_center, _currentPolygon) == false) {
@@ -161,6 +162,7 @@ class _ParkingMapState extends State<ParkingMap> {
           _isMoving = false;
         });
       } else {
+        await freeParking();
         tts.speak(
             "Time's up for $_currentParkName. The parking space has been reassigned");
         countdownTimer?.cancel();
@@ -168,9 +170,75 @@ class _ParkingMapState extends State<ParkingMap> {
     });
     countdownTimer;
   }
+  Future freeParking() async{
+    const url = "http://139.84.234.168/api/free/";
+    final StylishDialog dialog = showProgressDialog(context);
+    dialog.show();
+    final response = await http.post(
+      Uri.parse(url),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        "id": parkInfo['id'],
+      }),
+    );
+    dialog.dismiss();
+    if (response.statusCode == 400 && mounted) {
+      final message = jsonDecode(response.body)['message'];
 
-  void fetchPolygons() async {
-    const url = "http://192.168.1.66:8000/api/parks";
+      showError(context, "$message. Error code ${response.statusCode}");
+      return false;
+    }
+
+    if (response.statusCode.toString().startsWith('5') && mounted) {
+      showError(context,
+          "Could not connect to Parkify server: Error code: ${response.statusCode}");
+      return false;
+    }
+
+    if (response.statusCode == 200) {
+      return true;
+    }
+
+    return false;
+  }
+  Future<bool> bookParking() async {
+    const url = "http://139.84.234.168/api/book/";
+    final StylishDialog dialog = showProgressDialog(context);
+    dialog.show();
+    final response = await http.post(
+      Uri.parse(url),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        "id": parkInfo['id'],
+      }),
+    );
+    dialog.dismiss();
+    if (response.statusCode == 400 && mounted) {
+      final message = jsonDecode(response.body)['message'];
+
+      showError(context, "$message. Error code ${response.statusCode}");
+      return false;
+    }
+
+    if (response.statusCode.toString().startsWith('5') && mounted) {
+      showError(context,
+          "Could not connect to Parkify server: Error code: ${response.statusCode}");
+      return false;
+    }
+
+    if (response.statusCode == 200) {
+      return true;
+    }
+
+    return false;
+  }
+
+  fetchPolygons() async {
+    const url = "http://139.84.234.168/api/parks";
     print("Fetching polygons");
     print("Fetching polygons");
     final StylishDialog dialog = showProgressDialog(context);
@@ -183,7 +251,7 @@ class _ParkingMapState extends State<ParkingMap> {
       return;
     }
 
-    var geojson = json.decode(response.body)['parks'];
+    var geojson = jsonDecode(json.decode(response.body)['parks']);
     print(geojson);
     setState(() {
       _polys = geojson['features'].map<Polygon>((item) {
@@ -191,7 +259,7 @@ class _ParkingMapState extends State<ParkingMap> {
         print("Coordinates: ${item['geometry']['coordinates'][0][0]}");
         return Polygon(
           consumeTapEvents: true,
-          polygonId: PolygonId(item['properties']['Name']),
+          polygonId: PolygonId(item['properties']['name']),
           fillColor: item['properties']["available_spaces"] > 0
               ? Colors.green
               : Colors.red,
@@ -208,7 +276,7 @@ class _ParkingMapState extends State<ParkingMap> {
                 // _currentParkName = item['properties']['Name'];
               } else {
                 _currentPolygon = vertices;
-                _currentParkName = item['properties']['Name'];
+                _currentParkName = item['properties']['name'];
                 _polygoncenter = findCentroid(vertices);
                 _polygonCenterMarker = Marker(
                   markerId: const MarkerId('polygonCenter'),
@@ -221,7 +289,8 @@ class _ParkingMapState extends State<ParkingMap> {
               }
             });
             showPolygonModal(
-                item['properties']['Name'],
+                item['id'],
+                item['properties']['name'],
                 item['properties']['capacity'],
                 item['properties']['available_spaces']);
           },
@@ -281,7 +350,7 @@ class _ParkingMapState extends State<ParkingMap> {
               _currentPosition?.longitude ?? 0);
           // print(_currentPosition);
           // print(_center);
-          if (_mapCreated) {
+          if (_mapCreated &&(_polys.isEmpty && !_isMoving)) {
             _mapController.animateCamera(
               CameraUpdate.newLatLng(
                 LatLng(_currentPosition?.latitude ?? 0,
@@ -330,7 +399,7 @@ class _ParkingMapState extends State<ParkingMap> {
     );
   }
 
-  void showPolygonModal(name, capacity, availableSpaces) async {
+  void showPolygonModal(id, name, capacity, availableSpaces) async {
     final result = await showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -340,6 +409,7 @@ class _ParkingMapState extends State<ParkingMap> {
             child: Scaffold(
               backgroundColor: Colors.transparent,
               body: ParkingModal(
+                id: id,
                 name: name,
                 capacity: capacity,
                 availableSpaces: availableSpaces,
@@ -350,11 +420,14 @@ class _ParkingMapState extends State<ParkingMap> {
         });
 
     if (result != null) {
+      await getPolylinePoints()
+          .then((coordinates) => {generatePolylineFromPoints(coordinates)});
       final time = result['duration'];
       int minutes = time.toInt();
       double decimalPart = time - minutes;
       int seconds = (decimalPart * 60).round();
       setState(() {
+        parkInfo = result['parkinfo'];
         _isNavigating = true;
         timeLeft = Duration(minutes: minutes, seconds: seconds);
         print(timeLeft);
@@ -478,6 +551,10 @@ class _ParkingMapState extends State<ParkingMap> {
                 alignment: Alignment.bottomRight,
                 child: GestureDetector(
                   onTap: () async {
+                    final response = await bookParking();
+                    if (!response) {
+                      return;
+                    }
                     setState(() {
                       _isMoving = true;
                     });

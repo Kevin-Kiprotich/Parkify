@@ -6,10 +6,12 @@ import "package:parkify/functions/custom_dialogs.dart";
 class ParkingModal extends StatefulWidget {
   const ParkingModal(
       {super.key,
+      required this.id,
       required this.name,
       required this.capacity,
       required this.availableSpaces,
       required this.onNavigationCancelled});
+  final int id;
   final String name;
   final int capacity;
   final int availableSpaces;
@@ -196,6 +198,12 @@ class _ParkingModalState extends State<ParkingModal> {
                                 if (_formkey.currentState!.validate()) {
                                   if (widget.availableSpaces > 0) {
                                     final result = {
+                                      'parkinfo':{
+                                        'id':widget.id,
+                                        'name':widget.name,
+                                        'capacity':widget.capacity,
+                                        'available_spaces':widget.availableSpaces
+                                      },
                                       'duration':
                                           double.parse(_durationController.text)
                                     };
