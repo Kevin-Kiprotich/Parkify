@@ -47,6 +47,7 @@ class _ParkingMapState extends State<ParkingMap> {
   List<Polygon> _polys = [];
   List<LatLng> _currentPolygon = [];
   String _currentParkName = "";
+  String _currentSlotID = "";
   LatLng? _polygoncenter;
   Marker? _polygonCenterMarker;
   final Map<PolylineId, Polyline> _polylines = {};
@@ -171,7 +172,7 @@ class _ParkingMapState extends State<ParkingMap> {
     countdownTimer;
   }
   Future freeParking() async{
-    const url = "http://139.84.234.168/api/free/";
+    const url = "http://192.168.1.64:8000/api/free/";
     final StylishDialog dialog = showProgressDialog(context);
     dialog.show();
     final response = await http.post(
@@ -204,7 +205,7 @@ class _ParkingMapState extends State<ParkingMap> {
     return false;
   }
   Future<bool> bookParking() async {
-    const url = "http://139.84.234.168/api/book/";
+    const url = "http://192.168.1.64:8000/api/book/";
     final StylishDialog dialog = showProgressDialog(context);
     dialog.show();
     final response = await http.post(
@@ -238,8 +239,7 @@ class _ParkingMapState extends State<ParkingMap> {
   }
 
   fetchPolygons() async {
-    const url = "http://139.84.234.168/api/parks";
-    print("Fetching polygons");
+    const url = "http://192.168.1.64:8000/api/parks";
     print("Fetching polygons");
     final StylishDialog dialog = showProgressDialog(context);
     dialog.show();
@@ -251,7 +251,7 @@ class _ParkingMapState extends State<ParkingMap> {
       return;
     }
 
-    var geojson = jsonDecode(json.decode(response.body)['parks']);
+    var geojson = jsonDecode(json.decode(response.body)['slots']);
     print(geojson);
     setState(() {
       _polys = geojson['features'].map<Polygon>((item) {
@@ -259,8 +259,8 @@ class _ParkingMapState extends State<ParkingMap> {
         print("Coordinates: ${item['geometry']['coordinates'][0][0]}");
         return Polygon(
           consumeTapEvents: true,
-          polygonId: PolygonId(item['properties']['name']),
-          fillColor: item['properties']["available_spaces"] > 0
+          polygonId: PolygonId(item['id']),
+          fillColor: item['properties']["is_parked"]
               ? Colors.green
               : Colors.red,
           points: (item['geometry']['coordinates'][0][0] as List)
@@ -281,7 +281,7 @@ class _ParkingMapState extends State<ParkingMap> {
                 _polygonCenterMarker = Marker(
                   markerId: const MarkerId('polygonCenter'),
                   position: _polygoncenter!,
-                  icon: item['properties']["available_spaces"] > 0
+                  icon: item['properties']["is_parked"]
                       ? BitmapDescriptor.defaultMarker
                       : BitmapDescriptor.defaultMarkerWithHue(
                           BitmapDescriptor.hueGreen),
@@ -291,8 +291,8 @@ class _ParkingMapState extends State<ParkingMap> {
             showPolygonModal(
                 item['id'],
                 item['properties']['name'],
-                item['properties']['capacity'],
-                item['properties']['available_spaces']);
+                item['properties']['slot_no'],
+                item['properties']['is_parked']);
           },
           strokeWidth: 1,
         );
@@ -350,7 +350,7 @@ class _ParkingMapState extends State<ParkingMap> {
               _currentPosition?.longitude ?? 0);
           // print(_currentPosition);
           // print(_center);
-          if (_mapCreated &&(_polys.isEmpty && !_isMoving)) {
+          if (_mapCreated && _isMoving) {
             _mapController.animateCamera(
               CameraUpdate.newLatLng(
                 LatLng(_currentPosition?.latitude ?? 0,
@@ -399,7 +399,7 @@ class _ParkingMapState extends State<ParkingMap> {
     );
   }
 
-  void showPolygonModal(id, name, capacity, availableSpaces) async {
+  void showPolygonModal(id, name, slotNumber, isParked) async {
     final result = await showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -411,8 +411,8 @@ class _ParkingMapState extends State<ParkingMap> {
               body: ParkingModal(
                 id: id,
                 name: name,
-                capacity: capacity,
-                availableSpaces: availableSpaces,
+                slotNumber: slotNumber,
+                isParked: isParked,
                 onNavigationCancelled: onNavigationCancelled,
               ),
             ),
@@ -558,7 +558,7 @@ class _ParkingMapState extends State<ParkingMap> {
                     setState(() {
                       _isMoving = true;
                     });
-                    startCountdown();
+                    // startCountdown();
                     await tts.speak('Starting to navigate');
                     await launchUrl(Uri.parse(
                             'google.navigation:q=${_polygoncenter!.latitude}, ${_polygoncenter!.longitude}&key=$GOOGLE_MAPS_API_KEY'))
@@ -579,60 +579,60 @@ class _ParkingMapState extends State<ParkingMap> {
                   ),
                 ),
               ),
-            if (_isMoving)
-              Align(
-                alignment: Alignment.topCenter,
-                child: Container(
-                  width: MediaQuery.of(context).size.width - 136,
-                  margin: const EdgeInsets.only(top: 32),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x19000000),
-                        blurRadius: 16,
-                        offset: Offset(0, 4),
-                        spreadRadius: -2,
-                      )
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Align(
-                          alignment: Alignment.centerRight,
-                          child: IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _isMoving = false;
-                                _isNavigating = false;
-                              });
-                            },
-                            icon: const Icon(Icons.close),
-                          )),
-                      Text('Please arrive at $_currentParkName in this time.'),
-                      Text(
-                        '$hours:$minutes:$seconds',
-                        style: const TextStyle(
-                          fontSize: 40,
-                          fontWeight: FontWeight.bold,
-                          color: Color.fromRGBO(40, 40, 40, 1),
-                        ),
-                      ),
-                      if (timeLeft.inSeconds == 0 &&
-                          !isPointInPolygon(_center, _currentPolygon))
-                        Text(
-                          'Time\'s up! The parking space has been reassigned.',
-                          textAlign: TextAlign.center,
-                          style:
-                              TextStyle(fontSize: 14, color: Colors.red[800]),
-                        ),
-                    ],
-                  ),
-                ),
-              )
+            // if (_isMoving)
+              // Align(
+              //   alignment: Alignment.topCenter,
+              //   child: Container(
+              //     width: MediaQuery.of(context).size.width - 136,
+              //     margin: const EdgeInsets.only(top: 32),
+              //     padding: const EdgeInsets.symmetric(vertical: 16),
+              //     decoration: BoxDecoration(
+              //       color: Colors.white,
+              //       borderRadius: BorderRadius.circular(10),
+              //       boxShadow: const [
+              //         BoxShadow(
+              //           color: Color(0x19000000),
+              //           blurRadius: 16,
+              //           offset: Offset(0, 4),
+              //           spreadRadius: -2,
+              //         )
+              //       ],
+              //     ),
+              //     child: Column(
+              //       mainAxisSize: MainAxisSize.min,
+              //       children: [
+              //         Align(
+              //             alignment: Alignment.centerRight,
+              //             child: IconButton(
+              //               onPressed: () {
+              //                 setState(() {
+              //                   _isMoving = false;
+              //                   _isNavigating = false;
+              //                 });
+              //               },
+              //               icon: const Icon(Icons.close),
+              //             )),
+              //         Text('Please arrive at $_currentParkName in this time.'),
+              //         Text(
+              //           '$hours:$minutes:$seconds',
+              //           style: const TextStyle(
+              //             fontSize: 40,
+              //             fontWeight: FontWeight.bold,
+              //             color: Color.fromRGBO(40, 40, 40, 1),
+              //           ),
+              //         ),
+              //         if (timeLeft.inSeconds == 0 &&
+              //             !isPointInPolygon(_center, _currentPolygon))
+              //           Text(
+              //             'Time\'s up! The parking space has been reassigned.',
+              //             textAlign: TextAlign.center,
+              //             style:
+              //                 TextStyle(fontSize: 14, color: Colors.red[800]),
+              //           ),
+              //       ],
+              //     ),
+              //   ),
+              // )
           ],
         ),
       ),

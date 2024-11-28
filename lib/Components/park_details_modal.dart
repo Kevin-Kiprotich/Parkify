@@ -8,13 +8,13 @@ class ParkingModal extends StatefulWidget {
       {super.key,
       required this.id,
       required this.name,
-      required this.capacity,
-      required this.availableSpaces,
+      required this.slotNumber,
+      required this.isParked,
       required this.onNavigationCancelled});
-  final int id;
+  final String id;
   final String name;
-  final int capacity;
-  final int availableSpaces;
+  final int slotNumber;
+  final bool isParked;
   final void Function() onNavigationCancelled;
   @override
   State<ParkingModal> createState() => _ParkingModalState();
@@ -66,7 +66,7 @@ class _ParkingModalState extends State<ParkingModal> {
                 Row(
                   children: [
                     const Text(
-                      "Capacity:",
+                      "Slot Number:",
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -74,7 +74,7 @@ class _ParkingModalState extends State<ParkingModal> {
                     ),
                     const SizedBox(width: 16),
                     Text(
-                      widget.capacity.toString(),
+                      widget.slotNumber.toString(),
                       style: const TextStyle(
                         fontSize: 16,
                       ),
@@ -86,36 +86,18 @@ class _ParkingModalState extends State<ParkingModal> {
                 Row(
                   children: [
                     const Text(
-                      "Available Spaces:",
+                      "Available:",
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(width: 16),
-                    Container(
-                      height: 30,
-                      width: 30,
-                      decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(15),
-                          color: widget.availableSpaces > 0
-                              ? Colors.green
-                              : Colors.red),
-                      child: Center(
-                        child: Text(
-                          widget.availableSpaces.toString(),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
+                    Checkbox(value: widget.isParked, onChanged: null),
                   ],
                 ),
                 const SizedBox(height: 16),
-                if (widget.availableSpaces > 0)
+                if (!widget.isParked)
                   Form(
                     key: _formkey,
                     child: Column(
@@ -193,16 +175,15 @@ class _ParkingModalState extends State<ParkingModal> {
                     const SizedBox(width: 16),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: widget.availableSpaces > 0
+                        onPressed: !widget.isParked
                             ? () {
                                 if (_formkey.currentState!.validate()) {
-                                  if (widget.availableSpaces > 0) {
+                                  if (!widget.isParked) {
                                     final result = {
                                       'parkinfo':{
                                         'id':widget.id,
                                         'name':widget.name,
-                                        'capacity':widget.capacity,
-                                        'available_spaces':widget.availableSpaces
+                                        'available':widget.isParked
                                       },
                                       'duration':
                                           double.parse(_durationController.text)
@@ -212,7 +193,7 @@ class _ParkingModalState extends State<ParkingModal> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: const Text(
-                                          "No available spaces",
+                                          "The park is already booked",
                                           textAlign: TextAlign.center,
                                         ),
                                         action: SnackBarAction(
